@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 
 interface Metadata {
   url: string;
@@ -17,6 +18,85 @@ export default function Home() {
   const [jsonData, setJsonData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [metadataCache, setMetadataCache] = useState<Record<string, Metadata>>({});
+  const [fromHistory, setFromHistory] = useState(false);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [queryEmbedding, setQueryEmbedding] = useState<number[] | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // コサイン類似度を計算
+  const cosineSimilarity = (vecA: number[], vecB: number[]): number => {
+    if (vecA.length !== vecB.length) return 0;
+    
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
+    }
+    
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  };
+
+  // 入力のたびにembeddingを取得して類似検索
+  useEffect(() => {
+    if (!query.trim()) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setQueryEmbedding(null);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        // クエリのembeddingを取得
+        const embeddingResponse = await fetch('/api/embedding', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            input: query.trim(),
+          }),
+        });
+
+        if (embeddingResponse.ok) {
+          const embeddingData = await embeddingResponse.json();
+          const embedding = embeddingData.embedding;
+          setQueryEmbedding(embedding);
+
+          // 検索履歴から類似度の高い5件を取得
+          try {
+            const stored = localStorage.getItem('searchHistory');
+            if (stored) {
+              const history = JSON.parse(stored);
+              const historyWithSimilarity = history
+                .filter((item: any) => item.embedding && item.embedding.length > 0)
+                .map((item: any) => ({
+                  ...item,
+                  similarity: cosineSimilarity(embedding, item.embedding),
+                }))
+                .filter((item: any) => item.similarity > 0.5) // 類似度が0.5以上のもののみ
+                .sort((a: any, b: any) => b.similarity - a.similarity)
+                .slice(0, 5); // 上位5件
+
+              setSuggestions(historyWithSimilarity);
+              setShowSuggestions(historyWithSimilarity.length > 0);
+            }
+          } catch (err) {
+            console.error('Error reading history for suggestions:', err);
+          }
+        }
+      } catch (err) {
+        console.error('Error creating query embedding:', err);
+      }
+    }, 300); // 300msのdebounce
+
+    return () => clearTimeout(timeoutId);
+  }, [query]);
 
   const fetchMetadata = async (url: string): Promise<Metadata | null> => {
     if (metadataCache[url]) {
@@ -36,10 +116,12 @@ export default function Home() {
     }
   };
 
-  const handleSearch = async (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent, searchQuery?: string) => {
     e.preventDefault();
     
-    if (!query.trim()) {
+    const queryToSearch = searchQuery || query;
+    
+    if (!queryToSearch.trim()) {
       setError('検索クエリを入力してください');
       return;
     }
@@ -48,17 +130,144 @@ export default function Home() {
     setError(null);
     setResult(null);
     setJsonData(null);
+    setFromHistory(false);
 
     try {
-      const response = await fetch(`/api/analyze-image?query=${encodeURIComponent(query)}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || '検索に失敗しました');
+      // 履歴から同じクエリを検索
+      let data: any = null;
+      let foundInHistory = false;
+      
+      try {
+        const stored = localStorage.getItem('searchHistory');
+        if (stored) {
+          const history = JSON.parse(stored);
+          // 最新のものから検索（最新の結果を使用）
+          const reversedHistory = [...history].reverse();
+          const foundItem = reversedHistory.find((item: any) => item.query === queryToSearch.trim());
+          if (foundItem) {
+            data = foundItem;
+            foundInHistory = true;
+            setFromHistory(true);
+          }
+        }
+      } catch (err) {
+        console.error('Error reading history:', err);
       }
 
-      setResult(data.message?.content || '結果がありません');
+      // 履歴に見つからない場合のみAPIリクエスト
+      if (!data) {
+        // クエリのembeddingを取得して類似履歴を検索
+        let similarHistory: any[] = [];
+        try {
+          const queryEmbeddingResponse = await fetch('/api/embedding', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              input: queryToSearch.trim(),
+            }),
+          });
+
+          if (queryEmbeddingResponse.ok) {
+            const queryEmbeddingData = await queryEmbeddingResponse.json();
+            const queryEmbedding = queryEmbeddingData.embedding;
+
+            // 検索履歴から類似度90%以上の上位3件を取得
+            try {
+              const stored = localStorage.getItem('searchHistory');
+              if (stored) {
+                const history = JSON.parse(stored);
+                const historyWithSimilarity = history
+                  .filter((item: any) => item.embedding && item.embedding.length > 0)
+                  .map((item: any) => ({
+                    ...item,
+                    similarity: cosineSimilarity(queryEmbedding, item.embedding),
+                  }))
+                  .filter((item: any) => item.similarity >= 0.9) // 類似度が90%以上のもののみ
+                  .sort((a: any, b: any) => b.similarity - a.similarity)
+                  .slice(0, 3); // 上位3件
+
+                similarHistory = historyWithSimilarity;
+              }
+            } catch (err) {
+              console.error('Error reading history for similar search:', err);
+            }
+          }
+        } catch (err) {
+          console.error('Error creating query embedding for history:', err);
+        }
+
+        // POSTリクエストで履歴を含めて送信
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: queryToSearch,
+            history: similarHistory,
+          }),
+        });
+        
+        data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || '検索に失敗しました');
+        }
+      }
+
+      const content = data.message?.content || '結果がありません';
+      setResult(content);
       setJsonData(data);
+
+      // 履歴から取得した場合はembeddingが既にあるか確認
+      let embedding = data.embedding || null;
+      
+      // embeddingがない場合のみ作成
+      if (!embedding) {
+        try {
+          const embeddingResponse = await fetch('/api/embedding', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              input: content,
+            }),
+          });
+
+          if (embeddingResponse.ok) {
+            const embeddingData = await embeddingResponse.json();
+            embedding = embeddingData.embedding;
+          }
+        } catch (err) {
+          console.error('Error creating embedding:', err);
+        }
+      }
+
+      // 履歴から取得した場合は保存しない（既に保存済み）
+      if (!foundInHistory) {
+        // JSON辞書に結果を追加（検索クエリ、embedding、タイムスタンプを含む）
+        const resultData = {
+          ...data,
+          query: queryToSearch, // 検索したときのクエリ
+          embedding: embedding, // contentのembeddingベクトル
+          timestamp: new Date().toISOString(), // 検索実行時刻
+        };
+
+        // localStorageに保存
+        try {
+          const existingHistory = localStorage.getItem('searchHistory');
+          const history = existingHistory ? JSON.parse(existingHistory) : [];
+          history.push(resultData);
+          // 最新100件を保持（オプション）
+          const recentHistory = history.slice(-100);
+          localStorage.setItem('searchHistory', JSON.stringify(recentHistory));
+        } catch (err) {
+          console.error('Error saving to localStorage:', err);
+        }
+      }
 
       // annotationsのメタデータを非同期で取得
       const annotations = 
@@ -87,9 +296,20 @@ export default function Home() {
         {/* 検索バー - Google風 */}
         <div className="mb-8">
           <div className="mb-6 text-center">
-            <h1 className="text-4xl font-normal text-black dark:text-zinc-50 mb-2">
-              コンテキスト検索
-            </h1>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex-1"></div>
+              <h1 className="text-4xl font-normal text-black dark:text-zinc-50">
+                コンテキスト検索
+              </h1>
+              <div className="flex-1 flex justify-end">
+                <Link
+                  href="/history"
+                  className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 px-3 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  履歴
+                </Link>
+              </div>
+            </div>
           </div>
           <form onSubmit={handleSearch}>
             <div className="flex items-center rounded-full border border-zinc-300 shadow-sm hover:shadow-md transition-shadow dark:border-zinc-700 dark:bg-zinc-800">
@@ -110,7 +330,19 @@ export default function Home() {
                 <input
                   type="text"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setShowSuggestions(true);
+                  }}
+                  onFocus={() => {
+                    if (suggestions.length > 0) {
+                      setShowSuggestions(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    // 少し遅延させてクリックイベントを処理できるようにする
+                    setTimeout(() => setShowSuggestions(false), 200);
+                  }}
                   placeholder="検索..."
                   className="flex-1 bg-transparent text-black dark:text-zinc-50 placeholder-zinc-400 focus:outline-none"
                   disabled={loading}
@@ -136,11 +368,63 @@ export default function Home() {
               </button>
             </div>
           </form>
+          
+          {/* 検索候補 - Google風 */}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="mt-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg max-w-2xl mx-auto">
+              <div className="py-2">
+                {suggestions.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={async () => {
+                      setQuery(suggestion.query);
+                      setShowSuggestions(false);
+                      // 検索を実行
+                      const syntheticEvent = {
+                        preventDefault: () => {},
+                      } as React.FormEvent;
+                      await handleSearch(syntheticEvent, suggestion.query);
+                    }}
+                    className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-700 flex items-center gap-3 group"
+                  >
+                    <svg
+                      className="h-5 w-5 text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-black dark:text-zinc-50 truncate">
+                        {suggestion.query}
+                      </p>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        類似度: {(suggestion.similarity * 100).toFixed(1)}%
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (
           <div className="mb-6 rounded-lg bg-red-50 border border-red-200 p-4 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
             {error}
+          </div>
+        )}
+
+        {fromHistory && result && (
+          <div className="mb-4 rounded-lg bg-blue-50 border border-blue-200 p-3 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400 text-sm">
+            ✓ 履歴から取得しました
           </div>
         )}
 

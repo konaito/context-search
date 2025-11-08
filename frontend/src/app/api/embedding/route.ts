@@ -10,14 +10,14 @@ const openai = new OpenAI({
   },
 });
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const query = searchParams.get('query');
+    const body = await request.json();
+    const { input } = body;
 
-    if (!query) {
+    if (!input) {
       return NextResponse.json(
-        { error: 'query parameter is required' },
+        { error: 'input parameter is required' },
         { status: 400 }
       );
     }
@@ -29,24 +29,23 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const completion = await openai.chat.completions.create({
-      model: "perplexity/sonar",
-      messages: [
-        {
-          "role": "user",
-          "content": query
-        }
-      ]
+    const embedding = await openai.embeddings.create({
+      model: "google/gemini-embedding-001",
+      input: input, // 文字列または文字列の配列
+      encoding_format: "float",
     });
 
     return NextResponse.json({
-      message: completion.choices[0].message,
-      usage: completion.usage
+      embedding: embedding.data[0].embedding,
+      usage: embedding.usage,
     });
   } catch (error) {
-    console.error('Error processing query:', error);
+    console.error('Error creating embedding:', error);
     return NextResponse.json(
-      { error: 'Failed to process query', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        error: 'Failed to create embedding', 
+        details: error instanceof Error ? error.message : 'Unknown error' 
+      },
       { status: 500 }
     );
   }

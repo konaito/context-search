@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 
 interface Metadata {
   url: string;
@@ -12,6 +13,19 @@ interface Metadata {
 }
 
 export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-white dark:bg-zinc-900 flex items-center justify-center">
+        <p className="text-zinc-500 dark:text-zinc-400">読み込み中...</p>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -22,6 +36,8 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [queryEmbedding, setQueryEmbedding] = useState<number[] | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   // コサイン類似度を計算
   const cosineSimilarity = (vecA: number[], vecB: number[]): number => {
@@ -116,7 +132,7 @@ export default function Home() {
     }
   };
 
-  const handleSearch = async (e: React.FormEvent, searchQuery?: string) => {
+  const handleSearch = useCallback(async (e: React.FormEvent, searchQuery?: string) => {
     e.preventDefault();
     
     const queryToSearch = searchQuery || query;
@@ -126,6 +142,9 @@ export default function Home() {
       return;
     }
 
+    // 検索候補を閉じる
+    setShowSuggestions(false);
+    
     setLoading(true);
     setError(null);
     setResult(null);
@@ -288,7 +307,48 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [query]);
+
+  // URLクエリパラメータから自動検索を実行
+  useEffect(() => {
+    if (hasInitialized) return;
+    
+    const urlQuery = searchParams.get('query');
+    if (urlQuery) {
+      const decodedQuery = decodeURIComponent(urlQuery);
+      setQuery(decodedQuery);
+      setHasInitialized(true);
+      
+      // 自動的に検索を実行
+      const syntheticEvent = {
+        preventDefault: () => {},
+      } as React.FormEvent;
+      handleSearch(syntheticEvent, decodedQuery);
+    } else {
+      setHasInitialized(true);
+    }
+  }, [searchParams, hasInitialized, handleSearch]);
+
+  // 検索候補以外をクリックしたときに閉じる
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        suggestionsRef.current &&
+        !suggestionsRef.current.contains(event.target as Node) &&
+        showSuggestions
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+
+    if (showSuggestions) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showSuggestions]);
 
   return (
     <div className="min-h-screen bg-white dark:bg-zinc-900">
@@ -298,9 +358,11 @@ export default function Home() {
           <div className="mb-6 text-center">
             <div className="flex items-center justify-between mb-4">
               <div className="flex-1"></div>
-              <h1 className="text-4xl font-normal text-black dark:text-zinc-50">
-                コンテキスト検索
-              </h1>
+              <Link href="/">
+                <h1 className="text-4xl font-normal text-black dark:text-zinc-50 hover:opacity-80 cursor-pointer transition-opacity">
+                  コンテキスト検索
+                </h1>
+              </Link>
               <div className="flex-1 flex justify-end">
                 <Link
                   href="/history"
@@ -371,12 +433,16 @@ export default function Home() {
           
           {/* 検索候補 - Google風 */}
           {showSuggestions && suggestions.length > 0 && (
-            <div className="mt-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg max-w-2xl mx-auto">
+            <div ref={suggestionsRef} className="mt-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg max-w-2xl mx-auto">
               <div className="py-2">
                 {suggestions.map((suggestion, index) => (
                   <button
                     key={index}
                     type="button"
+                    onMouseDown={(e) => {
+                      // inputのblurを防ぐ
+                      e.preventDefault();
+                    }}
                     onClick={async () => {
                       setQuery(suggestion.query);
                       setShowSuggestions(false);

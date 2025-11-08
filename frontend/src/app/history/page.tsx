@@ -126,36 +126,31 @@ export default function HistoryPage() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-zinc-900">
-      <main className="mx-auto max-w-4xl px-4 py-6 sm:px-8">
-        {/* ヘッダー */}
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-normal text-black dark:text-zinc-50">
-            履歴
-          </h1>
-          <div className="flex gap-3">
-            <Link
-              href="/"
-              className="px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-100 rounded dark:text-zinc-400 dark:hover:bg-zinc-800"
-            >
-              検索に戻る
-            </Link>
-            {history.length > 0 && (
-              <button
-                onClick={clearHistory}
-                className="px-4 py-2 text-sm text-zinc-600 hover:bg-zinc-100 rounded dark:text-zinc-400 dark:hover:bg-zinc-800"
-              >
-                履歴を削除
-              </button>
-            )}
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-8">
+        {/* 検索バー - Google風 */}
+        <div className="mb-8">
+          <div className="mb-6 text-center">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex-1"></div>
+              <Link href="/">
+                <h1 className="text-4xl font-normal text-black dark:text-zinc-50 hover:opacity-80 cursor-pointer transition-opacity">
+                  コンテキスト検索
+                </h1>
+              </Link>
+              <div className="flex-1 flex justify-end">
+                <Link
+                  href="/history"
+                  className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 px-3 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  履歴
+                </Link>
+              </div>
+            </div>
           </div>
-        </div>
-
-        {/* 検索バー */}
-        {history.length > 0 && (
-          <div className="mb-6">
-            <div className="relative">
+          <div className="flex items-center rounded-full border border-zinc-300 shadow-sm hover:shadow-md transition-shadow dark:border-zinc-700 dark:bg-zinc-800">
+            <div className="flex-1 flex items-center px-5 py-3">
               <svg
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-zinc-400"
+                className="h-5 w-5 text-zinc-400 mr-3"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -171,10 +166,33 @@ export default function HistoryPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="履歴を検索"
-                className="w-full pl-10 pr-4 py-2 border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50"
+                placeholder="履歴を検索..."
+                className="flex-1 bg-transparent text-black dark:text-zinc-50 placeholder-zinc-400 focus:outline-none"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="ml-3 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
             </div>
+          </div>
+        </div>
+
+        {/* 履歴削除ボタン */}
+        {history.length > 0 && (
+          <div className="mb-6 text-center">
+            <button
+              onClick={clearHistory}
+              className="text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 px-4 py-2 rounded hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              すべての履歴を削除
+            </button>
           </div>
         )}
 

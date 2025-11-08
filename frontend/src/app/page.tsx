@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Metadata {
   url: string;
@@ -498,8 +500,8 @@ function HomeContent() {
           <>
             {/* 検索結果 - Google風 */}
             <div className="mb-8">
-              <div className="prose prose-sm max-w-none text-zinc-700 dark:prose-invert dark:text-zinc-300">
-                <div className="whitespace-pre-wrap leading-relaxed">{result}</div>
+              <div className="prose prose-sm max-w-none text-zinc-700 dark:prose-invert dark:text-zinc-300 whitespace-pre-wrap leading-relaxed">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
               </div>
             </div>
 
